@@ -1,0 +1,187 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Profile info and role-based permissions of a user, donor, or admin",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["donor", "volunteer", "finance", "admin", "super_admin"] },
+        "status": { "type": "string", "enum": ["active", "disabled"] },
+        "createdAt": { "type": "string" },
+        "lastLoginAt": { "type": "string" }
+      },
+      "required": ["uid", "name", "email", "role", "status"]
+    },
+    "DonationIntent": {
+      "title": "Donation Intent",
+      "description": "Records the donor's intent to donate for a selected cause",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "donorUid": { "type": "string" },
+        "donorName": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "country": { "type": "string" },
+        "cause": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "anonymous": { "type": "boolean" },
+        "message": { "type": "string" },
+        "status": { "type": "string" },
+        "assignedTo": { "type": "string" },
+        "receiptId": { "type": "string" },
+        "transactionReference": { "type": "string" },
+        "verifiedAmount": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "donorUid", "donorName", "phone", "cause", "amount", "status"]
+    },
+    "ChatRoom": {
+      "title": "Chat Room",
+      "description": "Chat portal matching a donation intent and a donor",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "donationIntentId": { "type": "string" },
+        "donorUid": { "type": "string" },
+        "assignedTo": { "type": "string" },
+        "status": { "type": "string" },
+        "lastMessage": { "type": "string" },
+        "lastMessageAt": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "donationIntentId", "donorUid", "status"]
+    },
+    "ChatMessage": {
+      "title": "Chat Message",
+      "description": "Message within a active support chat room",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "roomId": { "type": "string" },
+        "senderUid": { "type": "string" },
+        "senderRole": { "type": "string" },
+        "messageType": { "type": "string", "enum": ["text", "template", "proof", "system"] },
+        "text": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "roomId", "senderUid", "senderRole", "messageType", "text"]
+    },
+    "PaymentProof": {
+      "title": "Payment Proof",
+      "description": "Verification files and claim metadata submitted by donors",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "donationIntentId": { "type": "string" },
+        "roomId": { "type": "string" },
+        "donorUid": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "fileType": { "type": "string" },
+        "transactionReference": { "type": "string" },
+        "claimedAmount": { "type": "number" },
+        "verificationStatus": { "type": "string", "enum": ["pending", "valid", "invalid"] },
+        "verifiedBy": { "type": "string" },
+        "verifiedAt": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "donationIntentId", "roomId", "donorUid", "fileUrl", "verificationStatus"]
+    },
+    "PaymentSettings": {
+      "title": "Payment Settings",
+      "description": "Official account configurations governed by super_admin",
+      "type": "object",
+      "properties": {
+        "accountHolder": { "type": "string" },
+        "bankName": { "type": "string" },
+        "accountNumberMasked": { "type": "string" },
+        "accountNumberEncrypted": { "type": "string" },
+        "ifsc": { "type": "string" },
+        "upiId": { "type": "string" },
+        "qrImageUrl": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "updatedBy": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["accountHolder", "bankName", "isActive"]
+    },
+    "Receipt": {
+      "title": "Donation Receipt",
+      "description": "Official verified receipt records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "receiptNumber": { "type": "string" },
+        "donationIntentId": { "type": "string" },
+        "donorName": { "type": "string" },
+        "amount": { "type": "number" },
+        "cause": { "type": "string" },
+        "transactionReference": { "type": "string" },
+        "verifiedAt": { "type": "string" },
+        "generatedBy": { "type": "string" },
+        "pdfUrl": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "receiptNumber", "donationIntentId", "donorName", "amount", "cause"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "Tracks back-office, authorization edits, and security actions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "actorUid": { "type": "string" },
+        "actorRole": { "type": "string" },
+        "action": { "type": "string" },
+        "targetType": { "type": "string" },
+        "targetId": { "type": "string" },
+        "metadata": { "type": "object" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "actorUid", "actorRole", "action"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and security access roles catalog"
+    },
+    "donationIntents/{donationIntentId}": {
+      "schema": "DonationIntent",
+      "description": "Collection of donor donation intentions"
+    },
+    "chatRooms/{chatRoomId}": {
+      "schema": "ChatRoom",
+      "description": "Assigned and incoming support conversations"
+    },
+    "chatMessages/{chatMessageId}": {
+      "schema": "ChatMessage",
+      "description": "Complete communication details per chat room"
+    },
+    "paymentProofs/{paymentProofId}": {
+      "schema": "PaymentProof",
+      "description": "User-uploaded verification files"
+    },
+    "paymentSettings/{settingId}": {
+      "schema": "PaymentSettings",
+      "description": "Locked account configurations"
+    },
+    "receipts/{receiptId}": {
+      "schema": "Receipt",
+      "description": "Official receipt receipts list"
+    },
+    "auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Immutable telemetry for volunteer logs"
+    }
+  }
+}

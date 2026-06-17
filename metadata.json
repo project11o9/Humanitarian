@@ -1,0 +1,6 @@
+{
+  "name": "Humanitarian NGO Donation Portal",
+  "description": "A secure, transparent, and empathetic humanitarian NGO donation website focused on providing food, clean water, shelter, and medical care to civilians affected by the Gaza-Israel-Palestine conflict.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
