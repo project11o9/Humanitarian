@@ -14,11 +14,12 @@ import {
   sendChatMessage,
   ChatRoom,
   ChatMessage,
-  DonationIntent
+  DonationIntent,
+  compressImageAndReadAsDataUrl
 } from "../services/chatService";
 import { 
   Send, Bot, Headphones, User, CheckCircle2, ShieldCheck, 
-  Upload, FileText, Image as ImageIcon, Check, Info, Landmark, AlertCircle, X, MessageSquare, Printer, Award
+  Upload, FileText, Image as ImageIcon, Check, Info, Landmark, AlertCircle, X, MessageSquare, Printer, Award, FileCheck
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -34,8 +35,10 @@ export default function LiveChat({ roomId, onClose }: LiveChatProps) {
 
   const [inputText, setInputText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
   
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Real-time messages sync --
   useEffect(() => {
@@ -89,6 +92,61 @@ export default function LiveChat({ roomId, onClose }: LiveChatProps) {
     };
   }, [roomId]);
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !roomId) return;
+
+    setUploadError("");
+    try {
+      setIsUploading(true);
+
+      const { dataUrl, name, sizeStr } = await compressImageAndReadAsDataUrl(file);
+
+      // Determine file kind
+      const isImage = file.type.startsWith("image/");
+
+      // Send the file as an attachment in the chatroom
+      await sendChatMessage(
+        roomId,
+        "donor-guest",
+        "donor",
+        intent?.donorName || "Civilian Donor",
+        `📎 Sent Support Document: ${name}`,
+        "proof",
+        dataUrl,
+        name,
+        sizeStr
+      );
+
+      // Update room and donation status
+      const roomRef = doc(db, "chatRooms", roomId);
+      const now = new Date().toISOString();
+      await updateDoc(roomRef, { status: "Proof Received", updatedAt: now });
+
+      if (intent) {
+        const intentRef = doc(db, "donationIntents", intent.id);
+        await updateDoc(intentRef, { status: "Proof Received", updatedAt: now });
+      }
+
+      await sendChatMessage(
+        roomId,
+        "system",
+        "system",
+        "System",
+        `Donor uploaded manual giving document: ${name} (${sizeStr}). A volunteer coordinator will audit it shortly.`,
+        "system"
+      );
+
+    } catch (err: any) {
+      console.error(err);
+      setUploadError(err.message || "Failed to process the document.");
+      alert(err.message || "Failed to process the document.");
+    } finally {
+      setIsUploading(false);
+      e.target.value = "";
+    }
+  };
+
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const messageToSend = inputText.trim();
@@ -127,58 +185,6 @@ A dedicated volunteer coordinator is stepping in now. Please stand by for our of
     }
   };
 
-  // Simulate uploading transfer proof directly into Firestore
-  const handleUploadProofMock = async (index: number) => {
-    if (!roomId || !intent) return;
-
-    const files = [
-      { name: "SBI_TRANSFER_SLIP_829.png", size: "1.2 MB", url: "https://images.unsplash.com/photo-1554415707-6e8cfc93fe23?auto=format&fit=crop&q=80&w=400" },
-      { name: "HDFC_UPI_COMPLETED_302.jpg", size: "840 KB", url: "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&q=80&w=400" }
-    ];
-
-    const chosen = files[index];
-    try {
-      setIsUploading(true);
-
-      // Send chat message with the proof attachment information which renders beautiful attachment components
-      await sendChatMessage(
-        roomId,
-        "donor-guest",
-        "donor",
-        intent.donorName,
-        `📁 Attached Payment Proof Receipt Screen: ${chosen.name}`,
-        "proof",
-        chosen.url,
-        chosen.name,
-        chosen.size
-      );
-
-      // Update room status to "Proof Received"
-      const roomRef = doc(db, "chatRooms", roomId);
-      const intentRef = doc(db, "donationIntents", intent.id);
-      const now = new Date().toISOString();
-
-      await updateDoc(roomRef, { status: "Proof Received", updatedAt: now });
-      await updateDoc(intentRef, { status: "Proof Received", updatedAt: now });
-
-      // Append system state
-      await sendChatMessage(
-        roomId,
-        "system",
-        "system",
-        "System",
-        "Donor uploaded transfer proof. Verification pending by Accounts division.",
-        "system"
-      );
-
-      alert("Transfer proof uploaded successfully. Standing by verification.");
-    } catch (err) {
-      console.error(err);
-      alert("Error attaching transfer proof file.");
-    } finally {
-      setIsUploading(false);
-    }
-  };
 
   return (
     <div className="bg-white rounded-3xl border border-slate-200 shadow-xl flex flex-col h-[550px] md:h-[620px] overflow-hidden font-sans">
@@ -266,19 +272,58 @@ A dedicated volunteer coordinator is stepping in now. Please stand by for our of
                   <p className="whitespace-pre-line leading-relaxed">{m.text}</p>
                 )}
 
-                {/* File Proof uploaded element */}
+                {/* File/Photo uploaded element */}
                 {m.fileUrl && (
-                  <div className="mt-3 bg-slate-50 border border-slate-250 p-2.5 rounded-xl flex items-center justify-between gap-3 text-slate-800">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center shrink-0">
-                        <ImageIcon className="w-4 h-4 text-[#EA580C]" />
+                  <div className="mt-3 space-y-2">
+                    {/* Render visual image preview for photos/jpg/png and base64 images */}
+                    {(m.fileUrl.startsWith("data:image/") || 
+                      /\.(jpg|jpeg|png|webp|gif)$/i.test(m.fileName || "")) ? (
+                      <div className="relative group max-w-sm rounded-[14px] overflow-hidden border border-slate-200 bg-slate-900 shadow-3xs">
+                        <img 
+                          src={m.fileUrl} 
+                          alt={m.fileName || "Chat Image Attachment"} 
+                          className="max-h-56 w-full object-cover group-hover:scale-102 transition duration-200 cursor-zoom-in"
+                          onClick={() => {
+                            const newTab = window.open();
+                            if (newTab) {
+                              newTab.document.write(`
+                                <body style="margin:0; background:#0b0f19; display:flex; align-items:center; justify-content:center; height:100vh; overflow:hidden;">
+                                  <img src="${m.fileUrl}" style="max-width:100%; max-height:100%; object-fit:contain; box-shadow:0 10px 40px rgba(0,0,0,0.5); border-radius:8px;" />
+                                </body>
+                              `);
+                            }
+                          }}
+                        />
+                        <div className="absolute top-2 right-2 bg-slate-950/70 backdrop-blur-md text-white text-[8px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider font-sans">
+                          JPEG Preview
+                        </div>
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <span className="text-[10px] font-bold truncate block">{m.fileName}</span>
-                        <span className="text-[8.5px] text-stone-400 font-sans block">{m.fileSize}</span>
+                    ) : null}
+
+                    <div className="bg-slate-50 border border-slate-205 p-2.5 rounded-xl flex items-center justify-between gap-3 text-slate-800">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center shrink-0">
+                          {m.fileUrl.startsWith("data:image/") || /\.(jpg|jpeg|png|webp|gif)$/i.test(m.fileName || "") ? (
+                            <ImageIcon className="w-4 h-4 text-[#EA580C]" />
+                          ) : (
+                            <FileText className="w-4 h-4 text-[#EA580C]" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[10px] font-bold truncate block text-slate-800">{m.fileName}</span>
+                          <span className="text-[8.5px] text-neutral-400 font-sans block">{m.fileSize}</span>
+                        </div>
                       </div>
+                      <a 
+                        href={m.fileUrl} 
+                        download={m.fileName}
+                        target="_blank" 
+                        rel="noreferrer" 
+                        className="bg-orange-50 hover:bg-orange-100 border border-orange-150 text-[#EA580C] text-[9px] font-black uppercase tracking-wide px-2.5 py-1.5 rounded-md shrink-0 transition"
+                      >
+                        Download
+                      </a>
                     </div>
-                    <span className="bg-orange-50 border border-orange-100 text-[#EA580C] text-[9.5px] font-black uppercase tracking-wide px-2 py-1 rounded shrink-0">SUBMITTED</span>
                   </div>
                 )}
 
@@ -333,50 +378,46 @@ A dedicated volunteer coordinator is stepping in now. Please stand by for our of
         </div>
       )}
 
-      {/* Proof upload bar (Visible if in active status that accepts uploads) */}
-      {intent && intent.status !== "Verified" && intent.status !== "Closed" && (
-        <div className="bg-orange-50/65 border-t border-slate-200 p-2.5 flex items-center justify-between shrink-0 font-sans">
-          <div className="flex items-center gap-2">
-            <div className="p-1 rounded bg-orange-100 text-[#EA580C]">
-              <Upload className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="text-[10px] font-black uppercase text-[#EA580C] block">Support Manual transfer</span>
-              <span className="text-[9px] text-neutral-500 block">Click below to simulate uploading your payment screenshot</span>
-            </div>
-          </div>
 
-          <div className="flex gap-1.5 shrink-0">
-            <button
-              onClick={() => handleUploadProofMock(0)}
-              disabled={isUploading}
-              className="px-2.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-205 rounded-lg text-[10px] font-black uppercase text-stone-700 cursor-pointer transition shadow-3xs"
-            >
-              Simulate Slip 1
-            </button>
-            <button
-              onClick={() => handleUploadProofMock(1)}
-              disabled={isUploading}
-              className="px-2.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-205 rounded-lg text-[10px] font-black uppercase text-stone-700 cursor-pointer transition shadow-3xs"
-            >
-              Simulate Slip 2
-            </button>
-          </div>
-        </div>
-      )}
+
+      {/* Hidden native input for seamless file/document uploading */}
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        onChange={handleFileUpload} 
+        className="hidden" 
+        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" 
+      />
 
       {/* Input bar */}
-      <form onSubmit={handleSendMessage} className="p-3 bg-white border-t border-slate-200 flex gap-2 shrink-0">
+      <form onSubmit={handleSendMessage} className="p-3 bg-white border-t border-slate-200 flex gap-2 shrink-0 items-center">
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+          className="p-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 text-slate-500 hover:text-slate-800 rounded-xl transition cursor-pointer flex items-center justify-center shrink-0"
+          title="Attach support document or custom photo receipt"
+        >
+          {isUploading ? (
+            <div className="h-4 w-4 rounded-full border-2 border-slate-350 border-t-[#EA580C] animate-spin" />
+          ) : (
+            <Upload className="w-4 h-4 text-[#EA580C]" />
+          )}
+        </button>
+
         <input
           type="text"
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
-          placeholder="Type message to support volunteer advisor..."
-          className="flex-1 bg-[#F8FAFC] border border-slate-350 rounded-xl px-4 py-3 text-xs outline-none focus:ring-1 focus:ring-[#EA580C]"
+          placeholder={isUploading ? "Uploading support dossier..." : "Type message to support volunteer advisor..."}
+          disabled={isUploading}
+          className="flex-1 bg-[#F8FAFC] border border-slate-300 rounded-xl px-4 py-3 text-xs outline-none focus:ring-1 focus:ring-[#EA580C]"
         />
+
         <button
           type="submit"
-          className="bg-[#EA580C] hover:bg-[#c2410c] text-white p-3 rounded-xl transition cursor-pointer"
+          disabled={isUploading}
+          className="bg-[#EA580C] hover:bg-[#c2410c] text-white p-3 rounded-xl transition cursor-pointer disabled:bg-stone-300 shrink-0"
         >
           <Send className="w-4 h-4" />
         </button>

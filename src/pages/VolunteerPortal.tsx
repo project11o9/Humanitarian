@@ -29,7 +29,8 @@ import {
   addInternalNoteToRoom,
   ChatRoom,
   ChatMessage,
-  DonationIntent
+  DonationIntent,
+  compressImageAndReadAsDataUrl
 } from "../services/chatService";
 import { 
   getAllUsers, 
@@ -39,7 +40,7 @@ import {
 import { 
   MessageSquare, Users, Shield, Landmark, ClipboardList, CheckCircle2, 
   XCircle, Clock, Send, LogOut, FileCheck, Search, HelpCircle, Save, UserCheck, ShieldAlert,
-  Sparkles, Cpu, Check, Flame, BookOpen, Activity
+  Sparkles, Cpu, Check, Flame, BookOpen, Activity, Upload, Image as ImageIcon, FileText
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -69,6 +70,8 @@ export default function VolunteerPortal() {
   // Input states
   const [inputMessage, setInputMessage] = useState("");
   const [internalNote, setInternalNote] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const volunteerFileInputRef = useRef<HTMLInputElement>(null);
 
   // Verification Form states
   const [verifiedAmount, setVerifiedAmount] = useState<string>("");
@@ -257,6 +260,43 @@ export default function VolunteerPortal() {
       "text"
     );
     setInputMessage("");
+  };
+
+  const handleVolunteerFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeRoomId || !profile) return;
+
+    try {
+      setIsUploading(true);
+
+      const { dataUrl, name, sizeStr } = await compressImageAndReadAsDataUrl(file);
+
+      // Send the file message
+      await sendChatMessage(
+        activeRoomId,
+        profile.uid,
+        profile.role,
+        profile.name,
+        `📎 Sent Document/Photo: ${name}`,
+        "proof",
+        dataUrl,
+        name,
+        sizeStr
+      );
+
+      // Log the audit event
+      await createAuditLog(profile.uid, profile.role, "FILE_UPLOAD", "chatRooms", activeRoomId, {
+        fileName: name,
+        fileSize: sizeStr
+      });
+
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || "Error processing file upload.");
+    } finally {
+      setIsUploading(false);
+      e.target.value = "";
+    }
   };
 
   const claimActiveChat = async () => {
@@ -735,22 +775,53 @@ Audit Note: ${verificationNotes || "No matching logs found"}`;
                                 
                                 {/* Uploaded proof attachment rendering */}
                                 {msg.fileUrl && (
-                                  <div className="mt-3 bg-[#F8FAFC]/90 p-2.5 rounded-xl border border-slate-300 flex items-center gap-2.5 text-slate-800">
-                                    <div className="w-8 h-8 rounded-full bg-[#EA580C]/10 text-[#EA580C] flex items-center justify-center shrink-0">
-                                      <FileCheck className="w-4 h-4" />
+                                  <div className="mt-3 space-y-2">
+                                    {/* Render visual image preview for photos/jpg/png and base64 images */}
+                                    {(msg.fileUrl.startsWith("data:image/") || 
+                                      /\.(jpg|jpeg|png|webp|gif)$/i.test(msg.fileName || "")) ? (
+                                      <div className="relative group max-w-sm rounded-[14px] overflow-hidden border border-slate-200 bg-slate-900 shadow-3xs">
+                                        <img 
+                                          src={msg.fileUrl} 
+                                          alt={msg.fileName || "Chat Attachment"} 
+                                          className="max-h-56 w-full object-cover group-hover:scale-102 transition duration-200 cursor-zoom-in"
+                                          onClick={() => {
+                                            const newTab = window.open();
+                                            if (newTab) {
+                                              newTab.document.write(`
+                                                <body style="margin:0; background:#0b0f19; display:flex; align-items:center; justify-content:center; height:100vh; overflow:hidden;">
+                                                  <img src="${msg.fileUrl}" style="max-width:100%; max-height:100%; object-fit:contain; box-shadow:0 10px 40px rgba(0,0,0,0.5); border-radius:8px;" />
+                                                </body>
+                                              `);
+                                            }
+                                          }}
+                                        />
+                                        <div className="absolute top-2 right-2 bg-slate-950/70 backdrop-blur-md text-white text-[8px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider font-sans">
+                                          JPEG Preview
+                                        </div>
+                                      </div>
+                                    ) : null}
+
+                                    <div className="bg-[#F8FAFC]/90 p-2.5 rounded-xl border border-slate-300 flex items-center gap-2.5 text-slate-800">
+                                      <div className="w-8 h-8 rounded-full bg-[#EA580C]/10 text-[#EA580C] flex items-center justify-center shrink-0">
+                                        {msg.fileUrl.startsWith("data:image/") || /\.(jpg|jpeg|png|webp|gif)$/i.test(msg.fileName || "") ? (
+                                          <ImageIcon className="w-4 h-4" />
+                                        ) : (
+                                          <FileCheck className="w-4 h-4" />
+                                        )}
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <span className="text-[10px] font-bold truncate block text-slate-800">{msg.fileName || "deposit_proof.jpg"}</span>
+                                        <span className="text-[8.5px] text-[#EA580C] font-extrabold font-sans block uppercase mt-0.5">SIZE: {msg.fileSize || "Shared Remittance File"}</span>
+                                      </div>
+                                      <a
+                                        href={msg.fileUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="bg-slate-200 hover:bg-slate-300 shrink-0 text-[10px] font-extrabold uppercase px-2.5 py-1.5 rounded-lg text-slate-800 cursor-pointer"
+                                      >
+                                        Open File
+                                      </a>
                                     </div>
-                                    <div className="min-w-0 flex-1">
-                                      <span className="text-[10px] font-bold truncate block">{msg.fileName || "deposit_proof.jpg"}</span>
-                                      <span className="text-[8.5px] text-neutral-400 font-sans block uppercase mt-0.5">SIZE: {msg.fileSize || "Shared Remittance File"}</span>
-                                    </div>
-                                    <a
-                                      href={msg.fileUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="bg-slate-200 hover:bg-slate-300 shrink-0 text-[10px] font-extrabold uppercase px-2.5 py-1.5 rounded-lg text-slate-800 cursor-pointer"
-                                    >
-                                      Open File
-                                    </a>
                                   </div>
                                 )}
                               </div>
@@ -997,18 +1068,43 @@ Audit Note: ${verificationNotes || "No matching logs found"}`;
                         </button>
                       </div>
 
+                      {/* Hidden native input for volunteer uploading */}
+                      <input 
+                        type="file" 
+                        ref={volunteerFileInputRef} 
+                        onChange={handleVolunteerFileUpload} 
+                        className="hidden" 
+                        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" 
+                      />
+
                       {/* Message input footer */}
-                      <form onSubmit={handleSendMessage} className="p-3 border-t border-slate-200 bg-white flex gap-2">
+                      <form onSubmit={handleSendMessage} className="p-3 border-t border-slate-200 bg-white flex gap-2 items-center">
+                        <button
+                          type="button"
+                          onClick={() => volunteerFileInputRef.current?.click()}
+                          disabled={isUploading}
+                          className="p-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 text-slate-500 hover:text-slate-800 rounded-xl transition cursor-pointer flex items-center justify-center shrink-0"
+                          title="Upload official document, receipt, or registration paper"
+                        >
+                          {isUploading ? (
+                            <div className="h-4 w-4 rounded-full border-2 border-slate-300 border-t-[#EA580C] animate-spin" />
+                          ) : (
+                            <Upload className="w-4 h-4 text-[#EA580C]" />
+                          )}
+                        </button>
+
                         <input
                           type="text"
-                          placeholder="Type response back to donor..."
+                          placeholder={isUploading ? "Uploading folder..." : "Type response back to donor..."}
                           value={inputMessage}
                           onChange={(e) => setInputMessage(e.target.value)}
+                          disabled={isUploading}
                           className="flex-1 bg-[#F8FAFC] border border-slate-300 rounded-xl px-4 py-3 text-xs font-sans outline-none focus:ring-1 focus:ring-[#EA580C] focus:border-[#EA580C]"
                         />
                         <button
                           type="submit"
-                          className="bg-[#EA580C] hover:bg-[#c2410c] text-white p-3 rounded-xl transition cursor-pointer"
+                          disabled={isUploading}
+                          className="bg-[#EA580C] hover:bg-[#c2410c] text-white p-3 rounded-xl transition cursor-pointer shrink-0 disabled:bg-stone-300"
                         >
                           <Send className="w-4 h-4" />
                         </button>

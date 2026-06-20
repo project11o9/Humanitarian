@@ -258,3 +258,82 @@ export const addInternalNoteToRoom = async (
     handleFirestoreError(error, OperationType.UPDATE, `chatRooms/${roomId}`);
   }
 };
+
+/**
+ * Safely compresses and resizes an uploaded image using HTML Canvas
+ * to keep Firestore document payloads light (< 250KB) and highly performant,
+ * returning a self-contained base64 data URL that works everywhere.
+ */
+export function compressImageAndReadAsDataUrl(file: File): Promise<{ dataUrl: string; name: string; sizeStr: string }> {
+  return new Promise((resolve, reject) => {
+    const sizeInMB = file.size / (1024 * 1024);
+    const isImage = file.type.startsWith("image/");
+
+    // Protect against massive multiple-megabyte files for non-images
+    if (!isImage && sizeInMB > 1.5) {
+      reject(new Error("Document size exceeds the 1.5MB limit. Please upload a smaller document."));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      if (!isImage) {
+        // Safe to return raw data url for non-image files
+        const sizeStr = sizeInMB < 0.1 ? `${Math.round(file.size / 1024)} KB` : `${sizeInMB.toFixed(1)} MB`;
+        resolve({ dataUrl, name: file.name, sizeStr });
+        return;
+      }
+
+      // If it is an image, we compress it using a canvas
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+
+        // Limit dimensions to max 900px to ensure the base64 payload is super compact and fits in Firestore under 1MB easily
+        const maxDim = 900;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          const sizeStr = sizeInMB < 0.1 ? `${Math.round(file.size / 1024)} KB` : `${sizeInMB.toFixed(1)} MB`;
+          resolve({ dataUrl, name: file.name, sizeStr });
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Compress at 65% quality jpeg
+        const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.65);
+        
+        // Calculate estimated size of base64
+        const stringLength = compressedDataUrl.length - "data:image/jpeg;base64,".length;
+        const sizeInKB = Math.round((stringLength * 3) / 4 / 1024);
+        const sizeStr = `${sizeInKB} KB (Compressed)`;
+
+        resolve({ dataUrl: compressedDataUrl, name: file.name, sizeStr });
+      };
+      img.onerror = () => {
+        const sizeStr = sizeInMB < 0.1 ? `${Math.round(file.size / 1024)} KB` : `${sizeInMB.toFixed(1)} MB`;
+        resolve({ dataUrl, name: file.name, sizeStr });
+      };
+      img.src = dataUrl;
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+}
+
